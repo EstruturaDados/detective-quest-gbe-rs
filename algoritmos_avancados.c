@@ -3,130 +3,205 @@
 #include <string.h>
 #include <ctype.h>
 
-// Representa uma sala da mansão (nó da árvore binária)
+#define MAX_NOME 64
+#define MAX_PISTA 64
+
+/* Estrutura que representa um cômodo da mansão (nó da árvore binária) */
 typedef struct Sala {
-    char nome[40];
+    char nome[MAX_NOME];
+    char pista[MAX_PISTA];    // string vazia se não houver pista
     struct Sala *esq;
     struct Sala *dir;
 } Sala;
 
-// Cria dinamicamente uma sala com nome e filhos
-Sala* criarSala(const char *nome, Sala *esq, Sala *dir) {
-    Sala *nova = (Sala*) malloc(sizeof(Sala));
+/* Nó da árvore binária de busca que armazena pistas encontradas */
+typedef struct PistaNode {
+    char pista[MAX_PISTA];
+    struct PistaNode *esq;
+    struct PistaNode *dir;
+} PistaNode;
 
-    if (!nova) {
-        printf("Erro ao alocar memória!\n");
-        exit(1);
+/* criarSala: cria dinamicamente uma sala com nome, pista (pode ser "") e filhos */
+Sala* criarSala(const char *nome, const char *pista, Sala *esq, Sala *dir) {
+    Sala *s = (Sala*) malloc(sizeof(Sala));
+    if (!s) {
+        fprintf(stderr, "Erro: falha na alocação de memória para sala.\n");
+        exit(EXIT_FAILURE);
     }
-
-    strcpy(nova->nome, nome);
-    nova->esq = esq;
-    nova->dir = dir;
-
-    return nova;
+    strncpy(s->nome, nome, MAX_NOME-1);
+    s->nome[MAX_NOME-1] = '\0';
+    if (pista) {
+        strncpy(s->pista, pista, MAX_PISTA-1);
+        s->pista[MAX_PISTA-1] = '\0';
+    } else {
+        s->pista[0] = '\0';
+    }
+    s->esq = esq;
+    s->dir = dir;
+    return s;
 }
 
-// Permite que o jogador explore a mansão tomando decisões
-void explorarSalas(Sala *atual) {
+/* novoPistaNode: cria um nó para a BST de pistas */
+PistaNode* novoPistaNode(const char *pista) {
+    PistaNode *n = (PistaNode*) malloc(sizeof(PistaNode));
+    if (!n) {
+        fprintf(stderr, "Erro: falha na alocação de memória para pista.\n");
+        exit(EXIT_FAILURE);
+    }
+    strncpy(n->pista, pista, MAX_PISTA-1);
+    n->pista[MAX_PISTA-1] = '\0';
+    n->esq = n->dir = NULL;
+    return n;
+}
+
+/* inserirPista: insere uma pista na BST; ignora duplicatas */
+PistaNode* inserirPista(PistaNode *raiz, const char *pista) {
+    if (raiz == NULL) {
+        return novoPistaNode(pista);
+    }
+    int cmp = strcmp(pista, raiz->pista);
+    if (cmp < 0) {
+        raiz->esq = inserirPista(raiz->esq, pista);
+    } else if (cmp > 0) {
+        raiz->dir = inserirPista(raiz->dir, pista);
+    } /* se igual, não insere duplicata */
+    return raiz;
+}
+
+/* exibirPistas: imprime as pistas em ordem alfabética (em-ordem) */
+void exibirPistas(PistaNode *raiz) {
+    if (raiz == NULL) return;
+    exibirPistas(raiz->esq);
+    printf(" - %s\n", raiz->pista);
+    exibirPistas(raiz->dir);
+}
+
+/* liberarPistas: libera memória da BST de pistas */
+void liberarPistas(PistaNode *raiz) {
+    if (!raiz) return;
+    liberarPistas(raiz->esq);
+    liberarPistas(raiz->dir);
+    free(raiz);
+}
+
+/* liberarMansao: libera memória da árvore de salas (pos-ordem) */
+void liberarMansao(Sala *raiz) {
+    if (!raiz) return;
+    liberarMansao(raiz->esq);
+    liberarMansao(raiz->dir);
+    free(raiz);
+}
+
+/* explorarSalasComPistas: navegação interativa e coleta automática de pistas
+   - opcoes: e (esquerda), d (direita), p (ver pistas coletadas até agora), s (sair) */
+void explorarSalasComPistas(Sala *inicio, PistaNode **colecao) {
+    Sala *atual = inicio;
     char opcao;
 
-    printf("\n=== EXPLORAÇÃO DA MANSÃO ===\n");
+    printf("\n=== EXPLORAÇÃO DA MANSÃO (NÍVEL AVENTUREIRO) ===\n");
 
-    while (atual != NULL) {
+    while (1) {
+        if (atual == NULL) {
+            printf("Você está em uma área inexistente. Voltando ao Hall de Entrada.\n");
+            atual = inicio;
+        }
 
         printf("\nVocê está em: %s\n", atual->nome);
 
-        // Se chegou a um cômodo sem caminhos, a exploração termina
-        if (atual->esq == NULL && atual->dir == NULL) {
-            printf("Este é um beco sem saída. Não há portas aqui.\n");
-            return;
+        /* se a sala tiver pista não vazia, adiciona automaticamente (ignora se já coletada) */
+        if (atual->pista[0] != '\0') {
+            printf("Você encontrou uma pista: \"%s\"\n", atual->pista);
+            *colecao = inserirPista(*colecao, atual->pista);
         }
 
-        printf("Para onde deseja ir?\n");
-
-        if (atual->esq != NULL)
-            printf("  (e) Esquerda → %s\n", atual->esq->nome);
-
-        if (atual->dir != NULL)
-            printf("  (d) Direita  → %s\n", atual->dir->nome);
-
+        printf("Opções:\n");
+        if (atual->esq) printf("  (e) Ir para a esquerda → %s\n", atual->esq->nome);
+        if (atual->dir) printf("  (d) Ir para a direita  → %s\n", atual->dir->nome);
+        printf("  (p) Ver pistas coletadas até agora\n");
         printf("  (s) Sair da exploração\n");
-        printf("Opção: ");
+        printf("Escolha: ");
 
-        scanf(" %c", &opcao);
+        /* lê um caractere não branco */
+        if (scanf(" %c", &opcao) != 1) {
+            /* caso de leitura inválida, limpar e continuar */
+            int c;
+            while ((c = getchar()) != '\n' && c != EOF) ;
+            printf("Entrada inválida. Tente novamente.\n");
+            continue;
+        }
+
         opcao = tolower(opcao);
 
-        if (opcao == 'e' && atual->esq != NULL) {
-            atual = atual->esq;
-        }
-        else if (opcao == 'd' && atual->dir != NULL) {
-            atual = atual->dir;
-        }
-        else if (opcao == 's') {
-            printf("Você encerrou a exploração.\n");
+        if (opcao == 'e') {
+            if (atual->esq) atual = atual->esq;
+            else printf("Não há caminho à esquerda dessa sala.\n");
+        } else if (opcao == 'd') {
+            if (atual->dir) atual = atual->dir;
+            else printf("Não há caminho à direita dessa sala.\n");
+        } else if (opcao == 'p') {
+            printf("\n=== PISTAS COLETADAS (ATÉ O MOMENTO) ===\n");
+            if (*colecao == NULL) {
+                printf("(Nenhuma pista coletada)\n");
+            } else {
+                exibirPistas(*colecao);
+            }
+        } else if (opcao == 's') {
+            printf("Exploração encerrada pelo usuário.\n");
             return;
-        }
-        else {
-            printf("Opção inválida! Tente novamente.\n");
+        } else {
+            printf("Opção inválida. Use e, d, p ou s.\n");
         }
     }
 }
 
-// Monta a árvore que representa o mapa da mansão
+/* construirMansao: monta o mapa fixo da mansão com pistas associadas */
 Sala* construirMansao() {
+    /* Exemplo de mapa:
+                 Hall de Entrada
+                 /            \
+            Biblioteca      Sala de Jantar
+             /     \          /      \
+       Escritório Adega   Cozinha   Jardim
 
-    Sala *escritorio = criarSala("Escritório", NULL, NULL);
-    Sala *adega      = criarSala("Adega", NULL, NULL);
-    Sala *cozinha    = criarSala("Cozinha", NULL, NULL);
-    Sala *jardim     = criarSala("Jardim", NULL, NULL);
+       Algumas salas têm pistas associadas (strings).
+    */
 
-    Sala *biblioteca = criarSala("Biblioteca", escritorio, adega);
-    Sala *jantar     = criarSala("Sala de Jantar", cozinha, jardim);
+    Sala *escritorio = criarSala("Escritório", "Luvas ensanguentadas", NULL, NULL);
+    Sala *adega      = criarSala("Adega", "", NULL, NULL);
+    Sala *cozinha    = criarSala("Cozinha", "Pegadas com farinha", NULL, NULL);
+    Sala *jardim     = criarSala("Jardim", "Chave enferrujada", NULL, NULL);
 
-    Sala *hall       = criarSala("Hall de Entrada", biblioteca, jantar);
+    Sala *biblioteca = criarSala("Biblioteca", "Página arrancada", escritorio, adega);
+    Sala *jantar     = criarSala("Sala de Jantar", "", cozinha, jardim);
+
+    Sala *hall       = criarSala("Hall de Entrada", "", biblioteca, jantar);
 
     return hall;
 }
 
-int main() {
-
-        Sala *raiz = construirMansao();
+int main(void) {
+    Sala *raiz = construirMansao();
+    PistaNode *colecao = NULL;
 
     printf("========================================\n");
-    printf("DETECTIVE QUEST – NÍVEL NOVATO\n");
+    printf("DETECTIVE QUEST – NÍVEL AVENTUREIRO\n");
     printf("========================================\n");
-    printf("Você está no Hall de Entrada da mansão.\n");
+    printf("Você começa no Hall de Entrada. Explore a mansão e colete pistas.\n");
 
-    explorarSalas(raiz);
+    explorarSalasComPistas(raiz, &colecao);
+
+    printf("\n=== PISTAS COLETADAS (RESUMO FINAL) ===\n");
+    if (colecao == NULL) {
+        printf("(Nenhuma pista coletada)\n");
+    } else {
+        exibirPistas(colecao);
+    }
+
+    /* libera memória antes de terminar */
+    liberarPistas(colecao);
+    liberarMansao(raiz);
 
     printf("\nObrigado por jogar Detective Quest!\n");
-
-    return 0;
-
-    // 🔍 Nível Aventureiro: Armazenamento de Pistas com Árvore de Busca
-    //
-    // - Crie uma struct Pista com campo texto (string).
-    // - Crie uma árvore binária de busca (BST) para inserir as pistas coletadas.
-    // - Ao visitar salas específicas, adicione pistas automaticamente com inserirBST().
-    // - Implemente uma função para exibir as pistas em ordem alfabética (emOrdem()).
-    // - Utilize alocação dinâmica e comparação de strings (strcmp) para organizar.
-    // - Não precisa remover ou balancear a árvore.
-    // - Use funções para modularizar: inserirPista(), listarPistas().
-    // - A árvore de pistas deve ser exibida quando o jogador quiser revisar evidências.
-
-    // 🧠 Nível Mestre: Relacionamento de Pistas com Suspeitos via Hash
-    //
-    // - Crie uma struct Suspeito contendo nome e lista de pistas associadas.
-    // - Crie uma tabela hash (ex: array de ponteiros para listas encadeadas).
-    // - A chave pode ser o nome do suspeito ou derivada das pistas.
-    // - Implemente uma função inserirHash(pista, suspeito) para registrar relações.
-    // - Crie uma função para mostrar todos os suspeitos e suas respectivas pistas.
-    // - Adicione um contador para saber qual suspeito foi mais citado.
-    // - Exiba ao final o “suspeito mais provável” baseado nas pistas coletadas.
-    // - Para hashing simples, pode usar soma dos valores ASCII do nome ou primeira letra.
-    // - Em caso de colisão, use lista encadeada para tratar.
-    // - Modularize com funções como inicializarHash(), buscarSuspeito(), listarAssociacoes().
-
     return 0;
 }
 
